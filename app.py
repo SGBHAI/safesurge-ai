@@ -167,8 +167,8 @@ def generate_pdf_report(report_data):
     story.append(t_summary)
     story.append(Spacer(1, 15))
 
-    story.append(Paragraph("Lexical Telemetry", heading_style))
-    lex = report_data['lexical_telemetry']
+    story.append(Paragraph("Lexical Metrics", heading_style))
+    lex = report_data['lexical_metrics']
     lex_data = [
         [Paragraph("Metric", bold_cell_style), Paragraph("Value", bold_cell_style)],
         [Paragraph("URL Length", cell_style), Paragraph(f"{lex['length']} characters", cell_style)],
@@ -209,12 +209,29 @@ def generate_pdf_report(report_data):
     buffer.seek(0)
     return buffer
 
+@st.dialog("About SafeSurge-AI & Information")
+def show_info_modal():
+    st.write("### SafeSurge-AI Engine Overview")
+    st.write("SafeSurge-AI is a real-time web threat isolation engine designed to detect, analyze, and contain cyber threats dynamically.")
+    st.write("- **Real-time Engine:** Fully deployed live and operational for on-demand inspection.")
+    st.write("- **Zero-Trust Sandbox:** Blocks high-risk sites and allows secure previewing in an isolated environment.")
+    st.write("- **Heuristic Metrics:** Analyzes SSL certificates, domain registration age, entropy, and threat feeds.")
+
 st.title("SafeSurge-AI: Automated Web Threat Isolation Engine")
 st.markdown("Real-time lexical threat analysis, live SSL/WHOIS verification, threat feed lookup, and zero-trust sandbox execution.")
 
-test_url = st.text_input("Enter Target URL to Audit:", "http://paypa1-security-login-check.com/verify-account")
+top_col1, top_col2 = st.columns([6, 1])
+with top_col1:
+    target_input = st.text_input("Enter Target URL to Audit:", "http://paypa1-security-login-check.com/verify-account", label_visibility="collapsed")
+with top_col2:
+    search_clicked = st.button("Search / Audit", use_container_width=True)
 
-if test_url:
+if st.button("ℹ️ Info / Help"):
+    show_info_modal()
+
+test_url = target_input
+
+if test_url and (search_clicked or test_url):
     features, domain = extract_url_features(test_url)
     
     try:
@@ -240,10 +257,10 @@ if test_url:
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("Inspection Telemetry")
+        st.subheader("Inspection Metrics")
         st.metric("Overall Risk Index", f"{risk_prob*100:.1f}%")
         
-        st.markdown("**Lexical & Domain Telemetry:**")
+        st.markdown("**Lexical & Domain Metrics:**")
         st.write(f"- **URL Length:** {features[0]} characters")
         st.write(f"- **Subdomain/Dot Count:** {features[1]}")
         st.write(f"- **Domain Entropy:** {features[3]:.2f} bits/char")
@@ -265,14 +282,14 @@ if test_url:
             st.success("LOW RISK: Domain structure and verification parameters match nominal baseline.")
             st.info("**Awareness Tip:** Always confirm certificate authority validity even on low-risk sites.")
 
-        st.subheader("Telemetry Export")
+        st.subheader("Report Export")
         report_data = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "target_url": test_url,
             "domain": domain,
             "risk_index": round(risk_prob * 100, 2),
             "threat_feed_match": is_blacklisted,
-            "lexical_telemetry": {
+            "lexical_metrics": {
                 "length": features[0],
                 "dots": features[1],
                 "entropy": round(features[3], 2),
