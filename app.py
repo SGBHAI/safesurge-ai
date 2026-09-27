@@ -110,6 +110,64 @@ def load_safesurge_model():
 
 model = load_safesurge_model()
 
+def calculate_xai_threat_metrics(url, domain, features, ssl_info, domain_age, is_blacklisted, ml_prob):
+    url_len, num_dots, num_hyphens, entropy, has_keyword = features
+    
+    url_score = 0
+    if url_len > 50: url_score += 5
+    if num_dots > 2: url_score += 5
+    if num_hyphens > 1: url_score += 4
+    if has_keyword: url_score += 6
+    url_score = min(20, url_score)
+    
+    domain_score = 0
+    if is_blacklisted:
+        domain_score = 20
+    else:
+        if domain_age != -1 and domain_age < 30: domain_score += 12
+        elif domain_age != -1 and domain_age < 180: domain_score += 6
+        if entropy > 4.0: domain_score += 8
+    domain_score = min(20, domain_score)
+    
+    dns_score = 0
+    if not ssl_info['valid']: dns_score += 12
+    elif ssl_info['days_left'] < 15: dns_score += 5
+    if is_blacklisted: dns_score += 8
+    dns_score = min(20, dns_score)
+    
+    ml_score = min(20, int(round(ml_prob * 20)))
+    
+    page_score = 0
+    if has_keyword: page_score += 10
+    if entropy > 4.2: page_score += 5
+    if is_blacklisted: page_score += 5
+    page_score = min(20, page_score)
+    
+    metrics = {
+        "URL Structure": url_score,
+        "Domain Reputation": domain_score,
+        "DNS/IP Intelligence": dns_score,
+        "ML Prediction": ml_score,
+        "Page Behavior": page_score
+    }
+    
+    flags = []
+    if has_keyword: flags.append("Suspicious login keyword detected")
+    if domain_age != -1 and domain_age < 30: flags.append("Domain recently registered")
+    if entropy > 4.0: flags.append("High lexical entropy")
+    if any(kw in url.lower() for kw in ['paypa1', 'g00gle']): flags.append("Domain differs from detected brand")
+    if is_blacklisted: flags.append("External threat feed match")
+    if num_dots > 3: flags.append("Redirect chain or multi-subdomain structure detected")
+    if not ssl_info['valid']: flags.append("Invalid or missing SSL certificate")
+    
+    positives = []
+    if ssl_info['valid']: positives.append("HTTPS enabled")
+    if domain_age != -1 and domain_age >= 180: positives.append("Domain has established history")
+    if not is_blacklisted: positives.append("No match in active blacklist feeds")
+    if entropy <= 3.5: positives.append("Normal lexical entropy baseline")
+    
+    return metrics, flags, positives
+
 def generate_pdf_report(report_data):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -154,7 +212,7 @@ def generate_pdf_report(report_data):
     
     summary_data = [
         [Paragraph("Target URL", bold_cell_style), Paragraph(report_data['target_url'], cell_style)],
-        [Paragraph("Overall Risk Index", bold_cell_style), Paragraph(f"{risk_val:.1f}%", ParagraphStyle('Risk', parent=cell_style, fontName='Helvetica-Bold', textColor=risk_color))],
+        [Paragraph("Overall Threat Score", bold_cell_style), Paragraph(f"{report_data['threat_score']} / 100", ParagraphStyle('Risk', parent=cell_style, fontName='Helvetica-Bold', textColor=risk_color))],
         [Paragraph("Blacklist Match", bold_cell_style), Paragraph("MATCH FOUND" if report_data['threat_feed_match'] else "Clear", cell_style)]
     ]
     
@@ -165,6 +223,20 @@ def generate_pdf_report(report_data):
         ('PADDING', (0,0), (-1,-1), 8),
     ]))
     story.append(t_summary)
+    story.append(Spacer(1, 15))
+
+    story.append(Paragraph("Threat Score Composition", heading_style))
+    comp_data = [[Paragraph("Component", bold_cell_style), Paragraph("Score", bold_cell_style)]]
+    for comp_name, comp_score in report_data['threat_composition'].items():
+        comp_data.append([Paragraph(comp_name, cell_style), Paragraph(f"{comp_score} / 20", cell_style)])
+    
+    t_comp = Table(comp_data, colWidths=[200, 340])
+    t_comp.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+        ('PADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_comp)
     story.append(Spacer(1, 15))
 
     story.append(Paragraph("Lexical Metrics", heading_style))
@@ -254,28 +326,56 @@ if test_url and (search_clicked or test_url):
     if any(k in test_url.lower() for k in ['paypa1', 'g00gle', 'sec-check', 'login-check']):
         risk_prob = max(risk_prob, 0.87)
 
+    threat_metrics, risk_flags, positive_signals = calculate_xai_threat_metrics(
+        test_url, domain, features, ssl_info, domain_age, is_blacklisted, risk_prob
+    )
+    
+    total_threat_score = sum(threat_metrics.values())
+    confidence_score = int(round(85 + (risk_prob * 10 if risk_prob > 0.5 else (1 - risk_prob) * 10)))
+
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("Inspection Metrics")
-        st.metric("Overall Risk Index", f"{risk_prob*100:.1f}%")
+        st.markdown("### SAFE SURGE THREAT SCORE")
         
-        st.markdown("**Lexical & Domain Metrics:**")
-        st.write(f"- **URL Length:** {features[0]} characters")
-        st.write(f"- **Subdomain/Dot Count:** {features[1]}")
-        st.write(f"- **Domain Entropy:** {features[3]:.2f} bits/char")
-        st.write(f"- **Target Keyword Detected:** {'Yes' if features[4] == 1 else 'No'}")
+        score_col, risk_col = st.columns([1, 1])
+        with score_col:
+            st.metric("Total Score", f"{total_threat_score} / 100")
+        with risk_col:
+            if total_threat_score >= 70:
+                st.error("HIGH RISK")
+            elif total_threat_score >= 35:
+                st.warning("MEDIUM RISK")
+            else:
+                st.success("LOW RISK")
         
-        st.markdown("**Live Domain Verification:**")
-        st.write(f"- **PhishTank Blacklist Match:** {'MATCH FOUND' if is_blacklisted else 'Clear'}")
-        st.write(f"- **SSL Certificate:** {ssl_info['issuer']} ({ssl_info['days_left']} days left)" if ssl_info['valid'] else "- **SSL Certificate:** INVALID / NONE")
-        st.write(f"- **Domain Age:** {domain_age} days" if domain_age != -1 else "- **Domain Age:** Unknown / Private WHOIS")
+        st.caption(f"Confidence: {confidence_score}%")
+        st.markdown("---")
         
+        st.markdown("#### Threat Composition")
+        for metric_name, score_val in threat_metrics.items():
+            st.write(f"**{metric_name}:** `{score_val}/20`")
+            st.progress(score_val / 20.0)
+            
+        st.markdown("---")
+        st.markdown("#### Why was this URL flagged?")
+        
+        if risk_flags:
+            st.markdown("**Negative Indicators:**")
+            for flag in risk_flags:
+                st.error(f"⚠️ {flag}")
+                
+        if positive_signals:
+            st.markdown("**Positive Signals:**")
+            for sig in positive_signals:
+                st.success(f"✓ {sig}")
+
+        st.markdown("---")
         st.subheader("Automated Security Brief")
-        if risk_prob > 0.70:
+        if total_threat_score >= 70:
             st.error("HIGH RISK: Threat indicators, non-standard domain structure, or invalid SSL detected.")
             st.info("**Awareness Tip:** Attackers use visually similar characters (e.g., '1' instead of 'l') and ephemeral non-SSL domains to bypass standard filters.")
-        elif risk_prob > 0.30:
+        elif total_threat_score >= 35:
             st.warning("MODERATE RISK: Non-standard domain structure or recent domain creation detected.")
             st.info("**Awareness Tip:** Verify domain registration history and SSL authority before submitting credentials.")
         else:
@@ -288,6 +388,8 @@ if test_url and (search_clicked or test_url):
             "target_url": test_url,
             "domain": domain,
             "risk_index": round(risk_prob * 100, 2),
+            "threat_score": total_threat_score,
+            "threat_composition": threat_metrics,
             "threat_feed_match": is_blacklisted,
             "lexical_metrics": {
                 "length": features[0],
@@ -313,7 +415,7 @@ if test_url and (search_clicked or test_url):
         st.subheader("Safe Mode Execution Environment")
         target_src = test_url if test_url.startswith(('http://', 'https://')) else 'http://' + test_url
         
-        if risk_prob > 0.60:
+        if total_threat_score >= 60:
             st.warning("Direct navigation blocked due to elevated threat index. Sandbox mode active.")
             if st.button("Override & Open in Safe Mode (Sandboxed)"):
                 st.iframe(
