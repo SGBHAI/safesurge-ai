@@ -419,7 +419,7 @@ def generate_pdf_report(report_data):
     
     story.append(Spacer(1, 20))
     story.append(Paragraph("DEVELOPERS", heading_style))
-    story.append(Paragraph("Designed & Engineered by Swarit Garewal & Bhoomika Patel", bold_cell_style))
+    story.append(Paragraph("Designed & Engineered by Swarit Garewal & Aaryan Shroti", bold_cell_style))
 
     doc.build(story)
     buffer.seek(0)
@@ -703,7 +703,7 @@ with col_r4_2:
 st.markdown("""
 <div class='developer-card'>
     <h3 style='color: #10b981; margin-top: 0;'>👨‍💻 DEVELOPERS</h3>
-    <h2 style='color: #ffffff; margin-bottom: 5px;'>Swarit Garewal & Bhoomika Patel</h2>
+    <h2 style='color: #ffffff; margin-bottom: 5px;'>Swarit Garewal & Aaryan Shroti</h2>
     <hr style='border-color: #1e293b;'>
     <p style='color: #cbd5e1; font-size: 14px;'>
         <b>SafeSurge AI</b> is engineered for zero-trust web isolation, real-time threat detection, and explainable AI diagnostic security audits.
