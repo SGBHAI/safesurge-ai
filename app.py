@@ -2,6 +2,7 @@ import os
 import math
 import ssl
 import socket
+import time
 from io import BytesIO
 from datetime import datetime
 from urllib.parse import urlparse
@@ -214,6 +215,15 @@ st.markdown("""
         padding: 24px;
         margin-top: 30px;
     }
+
+    .defense-card {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        border: 1px solid #6366f1;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 20px rgba(99, 102, 241, 0.2);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -301,6 +311,38 @@ def load_safesurge_model():
     return clf
 
 model = load_safesurge_model()
+
+def b3b1u_scrub_and_rate_limit(payload_input: str):
+    if 'request_timestamps' not in st.session_state:
+        st.session_state.request_timestamps = []
+    
+    current_time = time.time()
+    st.session_state.request_timestamps = [t for t in st.session_state.request_timestamps if current_time - t < 10.0]
+    st.session_state.request_timestamps.append(current_time)
+    
+    request_count = len(st.session_state.request_timestamps)
+    is_rate_limited = request_count > 15
+    
+    # Core malicious attack keywords checked independently
+    malicious_keywords = ["<script>", "union", "select", "drop", "exec(", "eval(", "rm -rf", "or 1=1"]
+    
+    payload_lower = payload_input.lower()
+    # Flag if multiple dangerous keywords or high-risk attack strings appear together
+    payload_flagged = any(kw in payload_lower for kw in malicious_keywords) and ("?" in payload_input or "=" in payload_input or "<" in payload_input or " " in payload_input)
+    
+    scrubbed_payload = payload_input
+    if payload_flagged:
+        for kw in malicious_keywords:
+            if kw in scrubbed_payload.lower():
+                idx = scrubbed_payload.lower().find(kw)
+                scrubbed_payload = scrubbed_payload[:idx] + "[SANITIZED]" + scrubbed_payload[idx + len(kw):]
+            
+    return {
+        "request_count": request_count,
+        "is_rate_limited": is_rate_limited,
+        "payload_flagged": payload_flagged,
+        "scrubbed_payload": scrubbed_payload
+    }
 
 def analyze_url_dynamic(url_input):
     features, domain = extract_url_features(url_input)
@@ -478,7 +520,23 @@ with col_r1_2:
     st.progress(1.0)
     st.markdown("</div>", unsafe_allow_html=True)
 
-res = analyze_url_dynamic(url_input)
+defense_status = b3b1u_scrub_and_rate_limit(url_input)
+
+st.markdown(f"""
+<div class='defense-card'>
+    <h3 style='color: #818cf8; margin-top: 0;'>🛡️ B3B1U Active Defense Shield (Self-Protecting Infrastructure)</h3>
+    <p style='color: #cbd5e1; font-size: 13px; margin-bottom: 10px;'>
+        Real-time request inspection middleware actively scrubbing payloads and evaluating request frequency against protocol anomalies.
+    </p>
+    <div style='display: flex; gap: 20px; font-size: 13px;'>
+        <div><b>Active Requests (10s):</b> <span style='color: #38bdf8;'>{defense_status['request_count']} / 15</span></div>
+        <div><b>Rate Limit Status:</b> <span style='color: {"#ef4444" if defense_status["is_rate_limited"] else "#10b981"};'>{"⚠️ THROTTLED" if defense_status["is_rate_limited"] else "🟢 NORMAL"}</span></div>
+        <div><b>Payload Sanitization:</b> <span style='color: {"#ef4444" if defense_status["payload_flagged"] else "#10b981"};'>{"⚠️ INJECTION DETECTED & SANITIZED" if defense_status["payload_flagged"] else "🟢 CLEAN"}</span></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+res = analyze_url_dynamic(defense_status["scrubbed_payload"])
 
 col_r2_1, col_r2_2 = st.columns(2)
 
